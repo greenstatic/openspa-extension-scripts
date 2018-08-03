@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright The OpenSPA Extension Script Authors.
+# Copyright 2018 Gregor R. Krmelj
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@
 # status with which the OpenSPA server will understand the removal of the firewall rule was unsuccessful and
 # mark the connection host entry from its firewall state management as "stuck".
 #
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 
 import logging
 import sys
@@ -60,6 +60,34 @@ from threading import Timer
 # remember to add any whilelist rules to the INPUT chain in case you wish to
 # bypass OpenSPA for a couple of clients (eg. administrators computer).
 IPTABLES_OPENSPA_CHAIN = "OPENSPA"
+
+# This is the chain that will be used to block active connections
+# once they expire. This rule will forcefully block established
+# connections. The way it works is when we remove the allowed rule,
+# we will create a block rule inside the OPENSPA-BLOCK chain. This
+# allows us to have the ESTABLISHED,RELATED iptables rule to allow responses
+# that the host initiates but blocks established connections for OpenSPA
+# clients. You can disable this feature by setting
+# STATELESS_BLOCK_ENABLE=False. If you disable this feature it means that
+# if you have the ESTABLISHED,RELATED iptables rule enabled, if a client
+# keeps their connection alive, they will not be blocked by OpenSPA until
+# the connection drops.
+#
+# This is the established,related rule we were talking about:
+# iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#
+# The rule_add.py script will before allowing a connection try to delete
+# the same rule inside the OPENSPA-BLOCK chain in order to clean it up
+# a bit. The OPENSPA-BLOCK iptables chain will most of the time be filled
+# with unnecessary old rules and it is recommended to clean it up from
+# time to time, in order to prevent it from growing. A daily/weekly cron job
+# would be ideal - depending on how versatile is your OpenSPA usage.
+#
+# Note: if the STATELESS_BLOCK feature is enabled here it should be enabled
+# in the rule_add.py script as well and vice versa.
+# Check README.md for more information.
+IPTABLES_OPENSPA_BLOCK_CHAIN = "OPENSPA-BLOCK"
+STATELESS_BLOCK_ENABLE = True
 
 # The command timeout is specifically a timeout for the subprocess that will
 # run the iptables command. While the wait variable is completely handled
@@ -106,18 +134,44 @@ def main(ignore_iptables_failed_to_remove=False):
     if not success and not ignore_iptables_failed_to_remove:
         sys.exit(EXIT_IPTABLES_FAILED_TO_REMOVE_RULE)
 
+    if STATELESS_BLOCK_ENABLE:
+        success = iptables_add_block(client_ip, protocol, start_port, end_port, ipv4=client_ip_is_v4)
+        if not success and not ignore_iptables_failed_to_remove:
+            sys.exit(EXIT_IPTABLES_FAILED_TO_REMOVE_RULE)
+
+
+def iptables_add_block(client_ip, protocol, start_port, end_port, ipv4=True):
+    return iptables(True, IPTABLES_OPENSPA_BLOCK_CHAIN, False, client_ip, protocol, start_port, end_port, ipv4)
+
 
 def iptables_remove(client_ip, protocol, start_port, end_port, ipv4=True):
+    return iptables(False, IPTABLES_OPENSPA_CHAIN, True, client_ip, protocol, start_port, end_port, ipv4)
+
+
+def iptables(append, chain, accept, client_ip, protocol, start_port, end_port, ipv4):
     """
-    Removes a rule from the iptables FILTER table to deny the host to connect.
+    Creates an iptables rule.
+    If append is True we will add a rule otherwise we will delete the rule.
+    The chain is which iptables chain we are operating on (table FILTER).
+    The accept is if we wish to mark the rule with --jump ACCEPT otherwise
+    we will mark is --jump DROP.
+
     If ipv4=False then we will use ip6tables.
+
+    append=True, accept=True -> add a rule to the chain which is going to be allowed (ACCEPT)
+    append=False, accept=True -> remove a rule from the chain that was added with the previous combo
+
+    append=True, accept=False -> add a rule to the chain which is going to be dropped (DROP)
+    append=False, accept=False -> removes a rule from the chain that was added with the previous combo
     """
 
     command = "iptables"
     if not ipv4:
         command = "ip6tables"
 
-    command_args = ["--delete", IPTABLES_OPENSPA_CHAIN, "--source", client_ip, "-p", protocol]
+    command_args = ["--append", chain, "--source", client_ip, "-p", protocol]
+    if not append:
+        command_args = ["--delete", chain, "--source", client_ip, "-p", protocol]
 
     # If protocol is TCP or UDP add port information, otherwise ignore it (ICMP for example has
     # not ports)
@@ -130,7 +184,10 @@ def iptables_remove(client_ip, protocol, start_port, end_port, ipv4=True):
             ports = "{}:{}".format(start_port, end_port)
             command_args.extend(["--match", "multiport", "--dport", ports])
 
-    command_args.extend(["--jump", "ACCEPT"])
+    if accept:
+        command_args.extend(["--jump", "ACCEPT"])
+    else:
+        command_args.extend(["--jump", "DROP"])
 
     cmd = None
 
@@ -156,16 +213,78 @@ def iptables_remove(client_ip, protocol, start_port, end_port, ipv4=True):
     cmd.wait()
     t.cancel()
 
+    if cmd.returncode != 0:
+        logger.warning("Failed to execute iptables rule using command: %s", cmd_full)
+
+        logger.error(cmd.stdout)
+        logger.error(cmd.stderr)
+
+        return False
+
+    logger.info("Successfully executed iptables rule using command: %s", cmd_full)
+    return True
+
+
+def iptables_add_block(client_ip, protocol, start_port, end_port, ipv4=True):
+    """
+    Adds a rule to the iptables FILTER table to allow a host to connect.
+    If ipv4=False then we will use ip6tables.
+    """
+
+    command = "iptables"
+    if not ipv4:
+        command = "ip6tables"
+
+    command_args = ["--append", IPTABLES_OPENSPA_BLOCK_CHAIN, "--source", client_ip, "-p", protocol]
+
+    # If protocol is TCP or UDP add port information, otherwise ignore it (ICMP for example has
+    # not ports)
+    if protocol == "tcp" or protocol == "udp":
+        # In case we only have one port to allow use this simple argument
+        if start_port == end_port:
+            command_args.extend(["--dport", str(start_port)])
+        else:
+            # In case we have a port range, use the multiport match feature in iptables
+            ports = "{}:{}".format(start_port, end_port)
+            command_args.extend(["--match", "multiport", "--dport", ports])
+
+    command_args.extend(["--jump", "DROP"])
+    cmd = None
+
+    def timeout():
+        # Kills the command process and exists the process with a non-zero exit status.
+        # Triggered after the timeout duration after running the iptables command.
+        global cmd
+        logger.warning("iptables command timed out (in %d seconds), command: %s, args: %s. Killing process",
+                       command, command_args)
+        cmd.kill()
+        sys.exit(EXIT_IPTABLES_COMMAND_TIMEOUT)
+
+    cmd_full = [command] + command_args
+
+    logger.info("Running command: %s", cmd_full)
+
+    cmd = subprocess.Popen(cmd_full)
+
+    # Start timer, in case the iptables command timesout, run the timeout function
+    t = Timer(IPTABLES_COMMAND_TIMEOUT, timeout)
+    t.start()
+
+    cmd.wait()
+    t.cancel()
+
     if cmd.returncode == 0:
-        logger.info("Successfully removed iptables rule using command: %s", cmd_full)
+        logger.info("Successfully added iptables block rule using command: %s", cmd_full)
         return True
 
-    logger.warning("Failed to remove iptables rule using command: %s", cmd_full)
+    logger.warning("Failed to add iptables block rule using command: %s", cmd_full)
 
     logger.error(cmd.stdout)
     logger.error(cmd.stderr)
 
     return False
+
+
 
 
 if __name__ == "__main__":
