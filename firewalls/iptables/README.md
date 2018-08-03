@@ -29,5 +29,5 @@ Once you are confident you will not lose network access during the installation,
 these steps:
 1. Create new chain: `iptables --new-chain OPENSPA`
 2. Attach the chain to INPUT chain: `iptables --append INPUT --jump OPENSPA`
-3. Set the default drop policy on the INPUT chain: `iptables --policy INPUT drop`
+3. Set the default drop policy on the INPUT chain: `iptables --policy INPUT DROP`
 
