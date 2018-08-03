@@ -82,7 +82,7 @@ established sessions (from the server) to receive traffic (eg. ping started from
 Once you are confident you will not lose network access during the installation, follow
 these steps:
 1. Create a new chain: `iptables --new-chain OPENSPA`
-2. Add the *OPENSPA* chain to the INPUT chain: `iptables --insert 3 INPUT --jump OPENSPA`
+2. Add the *OPENSPA* chain to the INPUT chain: `iptables --insert INPUT 3 --jump OPENSPA`
 (note: here we insert the rule as rule number 3, this will most definitely depend
 on your setup. What is important is that this rule is BEFORE the *ESTABLISHED,RELATED*
 rule).
@@ -97,6 +97,6 @@ section to see how to disable properly.
 4. Create a new chain: `iptables --new-chain OPENSPA-BLOCK`
 5. Add the *OPENSPA-BLOCK* chain **AFTER** the **OPENSPA** chain but **BEFORE**
 the *ESTABLISHED,RELATED* rule to the INPUT chain:
-`iptables --insert 4 INPUT --jump OPENSPA-BLOCK` - again the rule number depends
+`iptables --insert INPUT 4 --jump OPENSPA-BLOCK` - again the rule number depends
 on your setup, use: `iptables -vnL --line-numbers` to place the rule before
 the *ESTABLISHED,RELATED* rule.
