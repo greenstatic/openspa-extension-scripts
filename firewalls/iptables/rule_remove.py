@@ -19,7 +19,7 @@
 #
 # Usage:
 #   python3 rule_remove.py <CLIENT_DEVICE_ID> <Client IP is "ipv4"/"ipv6"> <CLIENT_IP_ADDRESS>
-#                          <Server IP is "ipv4"/"ipv6"> <SERVER_IP_ADDRESS> <Protocol: tcp, udp, icmp>
+#                          <Server IP is "ipv4"/"ipv6"> <SERVER_IP_ADDRESS> <Protocol: tcp, udp, icmp, icmpv6>
 #                          <START_PORT> <END_PORT> <Client behind NAT: "1"/"0"> <DURATION (s)>
 #
 #   client_device_id: client device uuid (uuidv4)

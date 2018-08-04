@@ -1,5 +1,6 @@
 # OpenSPA firewall extension script - iptables
 Rule add and rule remove extension scripts that use iptables as a firewall.
+Supports both IPv4 and IPv6.
 
 ## Script Running Requirements
 * iptables, version 1.4.21 or greater
@@ -100,3 +101,21 @@ the *ESTABLISHED,RELATED* rule to the INPUT chain:
 `iptables --insert INPUT 4 --jump OPENSPA-BLOCK` - again the rule number depends
 on your setup, use: `iptables -vnL --line-numbers` to place the rule before
 the *ESTABLISHED,RELATED* rule.
+
+### IPv6 Setup
+If you wish to enable IPv6 support simply run the above mentioned commands, 
+but replace *iptables* with *ip6tables*.
+
+It must be noted that IPv6 relies on ICMPv6 to work properly. Therefore blocking 
+all ICMPv6 traffic is not a best practise.
+Rule to allow all ICMPv6 traffic: `ip6tables -I INPUT -icmpv6 --jump ACCEPT`. 
+A better approach would be to allow ICMPv6 traffic but deny the echo request/reply
+type and/or time exceeded used respectively by ping and traceroute.
+
+However if you still wish to block all ICMPv6 traffic, you must at least allow 
+the following rules. Which will enable the minimum your server needs to 
+communicate over IPv6:
+* `ip6tables -I INPUT -p icmpv6 --icmpv6-type router-solicitation --jump ACCEPT`
+* `ip6tables -I INPUT -p icmpv6 --icmpv6-type router-advertisement --jump ACCEPT`
+* `ip6tables -I INPUT -p icmpv6 --icmpv6-type neighbour-solicitation --jump ACCEPT`
+* `ip6tables -I INPUT -p icmpv6 --icmpv6-type neighbour-advertisement --jump ACCEPT`
