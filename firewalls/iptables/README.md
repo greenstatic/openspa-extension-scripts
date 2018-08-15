@@ -102,6 +102,14 @@ the *ESTABLISHED,RELATED* rule to the INPUT chain:
 on your setup, use: `iptables -vnL --line-numbers` to place the rule before
 the *ESTABLISHED,RELATED* rule.
 
+### Note
+iptables is not persistent between reboots.
+To save your rules between reboots we recommend *iptables-persistent*:
+
+ ```bash
+sudo apt-get install iptables-persistent
+```
+
 ### IPv6 Setup
 If you wish to enable IPv6 support simply run the above mentioned commands, 
 but replace *iptables* with *ip6tables*.
